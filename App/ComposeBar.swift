@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 /// The "send a Chat message" control shown under the selected conversation
 /// in Messages. When `preferredSpaceID` is set it sends straight to that
@@ -78,6 +79,11 @@ struct ComposeBar: View {
                     TextField("Message…", text: $draft)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(send)
+                        // Only intercepts when the pasteboard actually has
+                        // a file or image on it -- plain copied text still
+                        // falls through to the TextField's normal paste,
+                        // since .plainText isn't in this list.
+                        .onPasteCommand(of: [.fileURL, .image], perform: handlePaste)
 
                     Button(action: send) {
                         if store.isSendingChatMessage {
@@ -98,14 +104,7 @@ struct ComposeBar: View {
             .onChange(of: store.chatSpaces) { _, _ in syncSelection() }
             .onChange(of: preferredSpaceID) { _, _ in syncSelection() }
             .sheet(isPresented: $isShowingGifPicker) {
-                GifPickerView { url in
-                    if let reason = GoogleChatClient.blockedAttachmentReason(for: url) {
-                        attachmentError = reason
-                        return
-                    }
-                    attachmentError = nil
-                    attachedFileURL = url
-                }
+                GifPickerView { url in attach(fileAt: url) }
             }
         }
     }
@@ -123,13 +122,69 @@ struct ComposeBar: View {
         panel.prompt = "Attach"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        attach(fileAt: url)
+    }
 
+    /// Shared by every way a file can become the pending attachment
+    /// (Finder picker, the GIF picker, and pasting) -- always runs it
+    /// through the same known-restrictions check before accepting it.
+    private func attach(fileAt url: URL) {
         if let reason = GoogleChatClient.blockedAttachmentReason(for: url) {
             attachmentError = reason
             return
         }
         attachmentError = nil
         attachedFileURL = url
+    }
+
+    /// A paste that actually contains a file (copied in Finder, or a raw
+    /// image copied from a browser/screenshot tool) attaches it instead of
+    /// typing its contents into the draft -- there's nothing sensible to
+    /// "type" for a file anyway. Only fires when the pasteboard has one of
+    /// the types listed in onPasteCommand above; plain text pastes never
+    /// reach this at all.
+    private func handlePaste(providers: [NSItemProvider]) {
+        guard let provider = providers.first else { return }
+
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+                let url: URL?
+                switch item {
+                case let u as URL: url = u
+                case let data as Data: url = URL(dataRepresentation: data, relativeTo: nil)
+                case let nsurl as NSURL: url = nsurl as URL
+                default: url = nil
+                }
+                guard let url else { return }
+                DispatchQueue.main.async { attach(fileAt: url) }
+            }
+            return
+        }
+
+        // Not a real file -- raw image bytes (e.g. "Copy Image" from a
+        // browser, or a screenshot tool's clipboard capture) with no file
+        // of their own yet. Write them to one so they can go through the
+        // same attachment pipeline as everything else.
+        guard let imageType = provider.registeredTypeIdentifiers
+            .compactMap(UTType.init)
+            .first(where: { $0.conforms(to: .image) })
+        else { return }
+
+        provider.loadDataRepresentation(forTypeIdentifier: imageType.identifier) { data, _ in
+            guard let data else { return }
+            let ext = imageType.preferredFilenameExtension ?? "png"
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("pasted-\(UUID().uuidString)")
+                .appendingPathExtension(ext)
+            do {
+                try data.write(to: tempURL, options: .atomic)
+                DispatchQueue.main.async { attach(fileAt: tempURL) }
+            } catch {
+                // Nothing sensible to show the user for a failed temp
+                // write -- just drop it silently, same as any other
+                // paste that didn't resolve to usable content.
+            }
+        }
     }
 
     private func send() {
