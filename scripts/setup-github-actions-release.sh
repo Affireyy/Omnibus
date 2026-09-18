@@ -66,9 +66,14 @@ step "Exporting the private key to a one-time temp file"
 # ---------------------------------------------------------------------------
 # A key must already exist (from setup-autoupdate.sh) for there to be
 # anything to export.
-KEY_FILE=$(mktemp)
-chmod 600 "$KEY_FILE"
-trap 'rm -f "$KEY_FILE"' EXIT
+# generate_keys -x refuses to write to a file that already exists (it
+# won't silently overwrite a previous export), so the target path itself
+# must NOT exist yet -- only the containing directory does. mktemp -d
+# creates that directory securely (0700, unique); the file path inside it
+# is then guaranteed fresh for generate_keys to create.
+KEY_DIR=$(mktemp -d)
+KEY_FILE="$KEY_DIR/sparkle_private_key"
+trap 'rm -rf "$KEY_DIR"' EXIT
 
 "$TOOLS_DIR/bin/generate_keys" -x "$KEY_FILE" \
     || die "generate_keys -x failed -- do you have a key yet? Run scripts/setup-autoupdate.sh first if not."
@@ -78,7 +83,7 @@ trap 'rm -f "$KEY_FILE"' EXIT
 step "Storing it as the $SECRET_NAME secret on $REPO"
 # ---------------------------------------------------------------------------
 gh secret set "$SECRET_NAME" --repo "$REPO" < "$KEY_FILE"
-rm -f "$KEY_FILE"
+rm -rf "$KEY_DIR"
 trap - EXIT
 echo "Secret set. (Its value can't be viewed again -- by design, GitHub never returns a secret's contents, only that it exists.)"
 
