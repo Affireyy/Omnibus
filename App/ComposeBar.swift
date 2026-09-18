@@ -15,6 +15,7 @@ struct ComposeBar: View {
     @State private var attachedFileURL: URL?
     @State private var attachmentError: String?
     @State private var isShowingGifPicker = false
+    @FocusState private var isDraftFocused: Bool
 
     var body: some View {
         if store.chatSpaces.isEmpty {
@@ -79,11 +80,7 @@ struct ComposeBar: View {
                     TextField("Message…", text: $draft)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(send)
-                        // Only intercepts when the pasteboard actually has
-                        // a file or image on it -- plain copied text still
-                        // falls through to the TextField's normal paste,
-                        // since .plainText isn't in this list.
-                        .onPasteCommand(of: [.fileURL, .image], perform: handlePaste)
+                        .focused($isDraftFocused)
 
                     Button(action: send) {
                         if store.isSendingChatMessage {
@@ -103,6 +100,19 @@ struct ComposeBar: View {
             .onAppear { syncSelection() }
             .onChange(of: store.chatSpaces) { _, _ in syncSelection() }
             .onChange(of: preferredSpaceID) { _, _ in syncSelection() }
+            // Cmd+V is handled app-wide via OmnibusApp's replaced Paste
+            // command (see its comment -- the OS default just beeps at a
+            // plain text field for a file/image paste) -- only offer to
+            // handle it while this is actually the focused message field,
+            // so pasting elsewhere in the app (e.g. Settings) isn't
+            // hijacked into attaching to whatever conversation happens to
+            // be open here.
+            .onChange(of: isDraftFocused) { _, focused in
+                PasteCoordinator.shared.handler = focused ? { handlePasteFromClipboard() } : nil
+            }
+            .onDisappear {
+                PasteCoordinator.shared.handler = nil
+            }
             .sheet(isPresented: $isShowingGifPicker) {
                 GifPickerView { url in attach(fileAt: url) }
             }
@@ -137,53 +147,45 @@ struct ComposeBar: View {
         attachedFileURL = url
     }
 
-    /// A paste that actually contains a file (copied in Finder, or a raw
-    /// image copied from a browser/screenshot tool) attaches it instead of
-    /// typing its contents into the draft -- there's nothing sensible to
-    /// "type" for a file anyway. Only fires when the pasteboard has one of
-    /// the types listed in onPasteCommand above; plain text pastes never
-    /// reach this at all.
-    private func handlePaste(providers: [NSItemProvider]) {
-        guard let provider = providers.first else { return }
+    /// Called by PasteCoordinator (via OmnibusApp's replaced Paste command)
+    /// only while this is the focused message field. Reads NSPasteboard
+    /// directly rather than relying on SwiftUI's onPasteCommand -- that
+    /// modifier never actually fired here, since the default Edit menu's
+    /// Paste already sends `paste:` straight to the focused NSTextField's
+    /// field editor before onPasteCommand's own responder ever sees it.
+    /// Returns true if the clipboard held a real file/image and this
+    /// attached it; false means "nothing for me here," so the caller
+    /// falls back to a normal text paste.
+    private func handlePasteFromClipboard() -> Bool {
+        let pasteboard = NSPasteboard.general
 
-        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
-                let url: URL?
-                switch item {
-                case let u as URL: url = u
-                case let data as Data: url = URL(dataRepresentation: data, relativeTo: nil)
-                case let nsurl as NSURL: url = nsurl as URL
-                default: url = nil
-                }
-                guard let url else { return }
-                DispatchQueue.main.async { attach(fileAt: url) }
-            }
-            return
+        // A real file (e.g. copied in Finder) -- preferred over raw image
+        // bytes when both are somehow present, since it keeps the
+        // attachment's real filename instead of a generic "pasted-*".
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           let url = urls.first {
+            attach(fileAt: url)
+            return true
         }
 
-        // Not a real file -- raw image bytes (e.g. "Copy Image" from a
-        // browser, or a screenshot tool's clipboard capture) with no file
-        // of their own yet. Write them to one so they can go through the
-        // same attachment pipeline as everything else.
-        guard let imageType = provider.registeredTypeIdentifiers
-            .compactMap(UTType.init)
-            .first(where: { $0.conforms(to: .image) })
-        else { return }
-
-        provider.loadDataRepresentation(forTypeIdentifier: imageType.identifier) { data, _ in
-            guard let data else { return }
-            let ext = imageType.preferredFilenameExtension ?? "png"
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("pasted-\(UUID().uuidString)")
-                .appendingPathExtension(ext)
-            do {
-                try data.write(to: tempURL, options: .atomic)
-                DispatchQueue.main.async { attach(fileAt: tempURL) }
-            } catch {
-                // Nothing sensible to show the user for a failed temp
-                // write -- just drop it silently, same as any other
-                // paste that didn't resolve to usable content.
-            }
+        // Raw image bytes with no file of their own yet (e.g. "Copy
+        // Image" from a browser, or a screenshot tool's clipboard
+        // capture) -- write them to one so they can go through the same
+        // attachment pipeline as everything else.
+        guard let imageType = pasteboard.types?.first(where: { UTType($0.rawValue)?.conforms(to: .image) == true }),
+              let data = pasteboard.data(forType: imageType) else {
+            return false
+        }
+        let ext = UTType(imageType.rawValue)?.preferredFilenameExtension ?? "png"
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pasted-\(UUID().uuidString)")
+            .appendingPathExtension(ext)
+        do {
+            try data.write(to: tempURL, options: .atomic)
+            attach(fileAt: tempURL)
+            return true
+        } catch {
+            return false
         }
     }
 

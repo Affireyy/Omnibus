@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import Sparkle
 
 /// The app's appearance setting -- independent of, and overriding, the
@@ -71,6 +72,34 @@ struct OmnibusApp: App {
                     Task { await store.refreshAll() }
                 }
                 .keyboardShortcut("r", modifiers: [.command])
+            }
+            // The default Edit menu's Paste just forwards Cmd+V straight
+            // to whatever's focused. A compose bar's plain NSTextField
+            // only knows how to paste text, so with a file/image (no
+            // text) on the clipboard that's just a system beep -- nothing
+            // attaches. Replacing the whole pasteboard group (and putting
+            // Cut/Copy right back exactly as the default behaves, since
+            // replacing it drops them otherwise) lets PasteCoordinator
+            // offer the paste to whichever ComposeBar's message field is
+            // currently focused first; it falls back to the normal paste
+            // when nothing's registered (or the clipboard's just text).
+            CommandGroup(replacing: .pasteboard) {
+                Button("Cut") {
+                    NSApp.sendAction(Selector(("cut:")), to: nil, from: nil)
+                }
+                .keyboardShortcut("x", modifiers: .command)
+
+                Button("Copy") {
+                    NSApp.sendAction(Selector(("copy:")), to: nil, from: nil)
+                }
+                .keyboardShortcut("c", modifiers: .command)
+
+                Button("Paste") {
+                    if !PasteCoordinator.shared.tryHandle() {
+                        NSApp.sendAction(Selector(("paste:")), to: nil, from: nil)
+                    }
+                }
+                .keyboardShortcut("v", modifiers: .command)
             }
         }
 
