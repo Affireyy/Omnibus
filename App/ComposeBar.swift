@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The "send a Chat message" control shown under the selected conversation
 /// in Messages. When `preferredSpaceID` is set it sends straight to that
@@ -10,6 +11,8 @@ struct ComposeBar: View {
 
     @State private var selectedSpace: ChatSpace?
     @State private var draft = ""
+    @State private var attachedFileURL: URL?
+    @State private var attachmentError: String?
 
     var body: some View {
         if store.chatSpaces.isEmpty {
@@ -30,7 +33,43 @@ struct ComposeBar: View {
                     .frame(maxWidth: 220)
                 }
 
+                if let attachedFileURL {
+                    HStack(spacing: 6) {
+                        Image(systemName: "paperclip")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(attachedFileURL.lastPathComponent)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 0)
+                        Button {
+                            self.attachedFileURL = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+
+                if let attachmentError {
+                    Text(attachmentError)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                }
+
                 HStack(spacing: 8) {
+                    Button(action: chooseFile) {
+                        Image(systemName: "paperclip")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(store.isSendingChatMessage)
+                    .help("Attach a file")
+
                     TextField("Message…", text: $draft)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(send)
@@ -45,7 +84,7 @@ struct ComposeBar: View {
                     .buttonStyle(.borderless)
                     .disabled(
                         store.isSendingChatMessage
-                        || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachedFileURL == nil)
                         || selectedSpace == nil
                     )
                 }
@@ -56,11 +95,44 @@ struct ComposeBar: View {
         }
     }
 
+    /// Opens a plain file picker (the app isn't sandboxed -- see
+    /// AUTOUPDATE.md -- so no security-scoped bookmark dance is needed to
+    /// read the chosen file back later) and checks it against Chat's known
+    /// restrictions right away, rather than waiting until send to find out
+    /// it won't be accepted.
+    private func chooseFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Attach"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        if let reason = GoogleChatClient.blockedAttachmentReason(for: url) {
+            attachmentError = reason
+            return
+        }
+        attachmentError = nil
+        attachedFileURL = url
+    }
+
     private func send() {
         guard let space = selectedSpace else { return }
         let text = draft
+        let attachment = attachedFileURL
         draft = ""
-        Task { await store.sendChatMessage(text, to: space) }
+        attachedFileURL = nil
+        attachmentError = nil
+        Task {
+            let sent = await store.sendChatMessage(text, attachmentFileURL: attachment, to: space)
+            // Restore just the attachment on failure -- text is harder to
+            // restore predictably since the person may already be typing
+            // something new by the time the send comes back.
+            if !sent, let attachment {
+                attachedFileURL = attachment
+            }
+        }
     }
 
     private func syncSelection() {

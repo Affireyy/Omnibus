@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 public struct ChatMessageItem: Identifiable, Sendable, Equatable {
     public var id: String
@@ -36,6 +37,27 @@ public struct ChatSpace: Identifiable, Sendable, Equatable, Hashable {
     /// "Direct message" label. Nil for group spaces, or if it couldn't be
     /// resolved (e.g. the membership lookup failed or was inconclusive).
     public var dmOtherUserID: String?
+}
+
+/// What the Chat API's attachment upload endpoint hands back -- and,
+/// unchanged, what gets echoed into an outgoing message's `attachment`
+/// array to actually attach it (see GoogleChatClient.uploadAttachment /
+/// sendMessage). All fields are optional and round-trip whatever subset
+/// of the Attachment resource shape the server actually sends back,
+/// rather than assuming an exact shape -- the Chat API's own client
+/// libraries just pass the whole upload response straight through the
+/// same way.
+public struct ChatAttachmentUploadResult: Codable, Sendable, Equatable {
+    public var name: String?
+    public var contentName: String?
+    public var contentType: String?
+    public var attachmentDataRef: ChatAttachmentDataRef?
+    public var source: String?
+}
+
+public struct ChatAttachmentDataRef: Codable, Sendable, Equatable {
+    public var resourceName: String?
+    public var attachmentUploadToken: String?
 }
 
 public enum GoogleChatError: LocalizedError {
@@ -222,9 +244,12 @@ public final class GoogleChatClient: Sendable {
         return try JSONDecoder().decode(SpaceDTO.self, from: data)
     }
 
-    /// Sends a plain-text message to the given space (its `ChatSpace.id`,
-    /// e.g. "spaces/AAAAAAAAAAA"), as you.
-    public func sendMessage(text: String, to spaceName: String) async throws {
+    /// Sends a message to the given space (its `ChatSpace.id`, e.g.
+    /// "spaces/AAAAAAAAAAA"), as you -- optionally with a file attached
+    /// (see `uploadAttachment`, which produces the value to pass here).
+    /// `text` can be empty when `attachment` isn't nil (an attachment-only
+    /// message, same as sending just a photo in the real Chat app).
+    public func sendMessage(text: String, attachment: ChatAttachmentUploadResult? = nil, to spaceName: String) async throws {
         let token = try await auth.validAccessToken()
         let url = URL(string: "https://chat.googleapis.com/v1/\(spaceName)/messages")!
 
@@ -232,7 +257,9 @@ public final class GoogleChatClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(["text": text])
+        request.httpBody = try JSONEncoder().encode(
+            SendMessageRequest(text: text, attachment: attachment.map { [$0] })
+        )
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -241,6 +268,95 @@ public final class GoogleChatClient: Sendable {
         guard (200...299).contains(http.statusCode) else {
             throw GoogleChatError.requestFailed(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
+    }
+
+    private struct SendMessageRequest: Encodable {
+        var text: String
+        var attachment: [ChatAttachmentUploadResult]?
+    }
+
+    // MARK: - Attachments
+
+    /// File extensions Google Chat rejects outright when attaching a file
+    /// -- see https://support.google.com/chat/answer/7651457. Not
+    /// exhaustive for archives: Chat only blocks a zip/gz/bz2/tgz when it
+    /// *contains* one of these, which isn't practical to detect
+    /// client-side, so archive extensions aren't pre-blocked here -- a
+    /// genuinely-blocked archive still gets rejected by the server, just
+    /// with a less friendly message than the ones checked here.
+    public static let blockedAttachmentExtensions: Set<String> = [
+        "ade", "adp", "apk", "bat", "cab", "chm", "cmd", "com", "cpl", "dll",
+        "dmg", "exe", "hta", "ins", "isp", "jar", "js", "jse", "lib", "lnk",
+        "mde", "msc", "msi", "msp", "mst", "nsh", "pif", "scr", "sct", "shb",
+        "sys", "vb", "vbe", "vbs", "vxd", "wsc", "wsf", "wsh"
+    ]
+
+    public static let maxAttachmentBytes: Int64 = 200 * 1024 * 1024
+
+    /// Checks a file against Chat's known-blocked extensions and its
+    /// 200 MB upload cap before bothering to upload it -- returns a
+    /// human-readable rejection reason, or nil if the file looks fine to
+    /// try. Cheap enough to call the moment a file is picked, not just
+    /// right before sending.
+    public static func blockedAttachmentReason(for url: URL) -> String? {
+        let ext = url.pathExtension.lowercased()
+        if blockedAttachmentExtensions.contains(ext) {
+            return "Google Chat doesn't allow .\(ext) attachments."
+        }
+        if let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+           let size = values.fileSize,
+           Int64(size) > maxAttachmentBytes {
+            return "That file is over Google Chat's 200 MB attachment limit."
+        }
+        return nil
+    }
+
+    /// Uploads a local file to the given space as an attachment, ready to
+    /// hand to `sendMessage(text:attachment:to:)`. Uses Chat's "simple
+    /// multipart" media upload convention (a JSON metadata part plus a
+    /// raw-bytes part in one request) rather than a resumable upload --
+    /// fine for the file sizes anyone's actually attaching from Messages,
+    /// and much simpler than implementing the chunked resumable protocol.
+    /// See https://developers.google.com/workspace/chat/upload-media-attachments.
+    public func uploadAttachment(fileURL: URL, to spaceName: String) async throws -> ChatAttachmentUploadResult {
+        let token = try await auth.validAccessToken()
+        let url = URL(string: "https://chat.googleapis.com/upload/v1/\(spaceName)/attachments:upload?uploadType=multipart")!
+
+        let fileData = try Data(contentsOf: fileURL)
+        let filename = fileURL.lastPathComponent
+        let mimeType = Self.mimeType(for: fileURL)
+        let boundary = "OmnibusBoundary-\(UUID().uuidString)"
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/json; charset=UTF-8\r\n\r\n".data(using: .utf8)!)
+        body.append(try JSONEncoder().encode(["filename": filename]))
+        body.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/related; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw GoogleChatError.requestFailed(-1, "No response")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw GoogleChatError.requestFailed(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return try JSONDecoder().decode(ChatAttachmentUploadResult.self, from: data)
+    }
+
+    private static func mimeType(for url: URL) -> String {
+        if let type = UTType(filenameExtension: url.pathExtension), let mime = type.preferredMIMEType {
+            return mime
+        }
+        return "application/octet-stream"
     }
 
     // MARK: - Spaces

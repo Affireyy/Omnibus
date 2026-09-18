@@ -28,7 +28,7 @@ In the project, go to **APIs & Services > Library** and enable:
   `.../auth/chat.spaces.readonly`,
   `.../auth/chat.spaces.create` (lets Messages' "Add Chat" button start a
   new direct message with someone who hasn't messaged you before),
-  `.../auth/chat.messages` (full read/write -- lets Omnibus send messages, not just read them),
+  `.../auth/chat.messages` (full read/write -- lets Omnibus send messages and file attachments, not just read them; if attaching a file ever comes back with a scope error specifically, Google's docs list the narrower `chat.messages.create` for just the upload step, but the full scope above should already cover it),
   `.../auth/chat.memberships.readonly` (finds who a direct message is with),
   `.../auth/directory.readonly` (looks up that person's real name/photo --
   see the note below, this one's more likely to be blocked on a school account).

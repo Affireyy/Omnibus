@@ -272,10 +272,32 @@ public final class OmnibusStore: ObservableObject {
     /// no reason the UI has to sit still for it. Returns whether it
     /// ultimately succeeded; on failure, `chatError` is set with the reason
     /// and the pending message is removed rather than left stuck spinning.
+    /// `attachmentFileURL`, when given, is uploaded and attached to the
+    /// message -- Chat allows an attachment with no text at all, same as
+    /// sending just a photo from the real Chat app, so `text` alone being
+    /// empty doesn't fail the send when a file is attached.
     @discardableResult
-    public func sendChatMessage(_ text: String, to space: ChatSpace) async -> Bool {
+    public func sendChatMessage(_ text: String, attachmentFileURL: URL? = nil, to space: ChatSpace) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
+        guard !trimmed.isEmpty || attachmentFileURL != nil else { return false }
+
+        if let attachmentFileURL, let reason = GoogleChatClient.blockedAttachmentReason(for: attachmentFileURL) {
+            chatError = reason
+            return false
+        }
+
+        // The pending bubble can't show a real attachment preview (that's
+        // a bigger feature than sending -- Omnibus doesn't render incoming
+        // attachments either), so fold the filename into its text as a
+        // stand-in; the confirmed message that replaces it once sent
+        // renders however Chat's own message text came back.
+        let pendingText: String
+        if let attachmentFileURL {
+            let filename = attachmentFileURL.lastPathComponent
+            pendingText = trimmed.isEmpty ? "📎 \(filename)" : "\(trimmed)\n📎 \(filename)"
+        } else {
+            pendingText = trimmed
+        }
 
         let pending = ChatMessageItem(
             id: "pending-\(UUID().uuidString)",
@@ -283,7 +305,7 @@ public final class OmnibusStore: ObservableObject {
             spaceDisplayName: space.displayName,
             senderDisplayName: ownChatDisplayName ?? "You",
             senderID: auth.accountID.map { "users/\($0)" },
-            text: trimmed,
+            text: pendingText,
             createTime: .now,
             isPending: true
         )
@@ -292,7 +314,11 @@ public final class OmnibusStore: ObservableObject {
         isSendingChatMessage = true
         defer { isSendingChatMessage = false }
         do {
-            try await chatClient.sendMessage(text: trimmed, to: space.id)
+            var uploaded: ChatAttachmentUploadResult?
+            if let attachmentFileURL {
+                uploaded = try await chatClient.uploadAttachment(fileURL: attachmentFileURL, to: space.id)
+            }
+            try await chatClient.sendMessage(text: trimmed, attachment: uploaded, to: space.id)
             await refreshChat()
             pendingChatMessages.removeAll { $0.id == pending.id }
             return true
