@@ -19,5 +19,18 @@
     <description>Updates for Omnibus.</description>
     <language>en</language>
     <!-- CI-INSERT-POINT: new <item> elements are inserted directly below this line. -->
+    <item>
+    <title>v0.2.0</title>
+    <pubDate>Fri, 18 Sep 2026 15:23:18 +0000</pubDate>
+    <sparkle:version>1</sparkle:version>
+    <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+    <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+    <enclosure
+        url="https://github.com/Affireyy/Omnibus/releases/download/v0.2.0/Omnibus-0.2.0.dmg"
+        length="2137229"
+        type="application/octet-stream"
+        sparkle:edSignature="xE38T/Jd8QcfvIGcYHiQCrHSF2fCYXSdKNgJIgyz3dMuH2wiYMtpIzmdl6ju0g5qM+5UQ7zrqjchP8Sw/WilCw==" />
+</item>
+
   </channel>
 </rss>
