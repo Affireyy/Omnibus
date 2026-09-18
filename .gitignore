@@ -1,0 +1,15 @@
+# XcodeGen regenerates this from project.yml -- don't track the generated
+# project, only its source of truth.
+*.xcodeproj/
+
+# Xcode / build
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# macOS
+.DS_Store
+
+# Sparkle release artifacts -- built locally each release, not source.
+*.zip

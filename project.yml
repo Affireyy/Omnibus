@@ -1,0 +1,76 @@
+name: Omnibus
+options:
+  bundleIdPrefix: com.dessimondi
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  # Sparkle powers "Check for Updates..." and the automatic background
+  # update check -- see AUTOUPDATE.md for the one-time key/feed setup this
+  # needs before it actually does anything.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    INFOPLIST_KEY_CFBundleShortVersionString: "0.1.0"
+    INFOPLIST_KEY_CFBundleVersion: "1"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: UDWA7LNKRM
+
+targets:
+  Omnibus:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+      - path: Shared
+    dependencies:
+      - package: Sparkle
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dessimondi.Omnibus
+        CODE_SIGN_ENTITLEMENTS: App/Omnibus.entitlements
+        INFOPLIST_FILE: App/Info.plist
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: en
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleInfoDictionaryVersion: "6.0"
+        CFBundleName: $(PRODUCT_NAME)
+        CFBundlePackageType: APPL
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        LSApplicationCategoryType: public.app-category.education
+        LSUIElement: false
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false
+        # Sparkle auto-update -- see AUTOUPDATE.md. Both of these are
+        # placeholders until you've generated your own signing key and
+        # created the GitHub repo the feed lives in; the app runs fine
+        # without them, it just won't find any updates yet.
+        SUFeedURL: "https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/Omnibus/main/appcast.xml"
+        SUPublicEDKey: "REPLACE_WITH_YOUR_SPARKLE_PUBLIC_KEY"
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
+        # Registers the custom URL scheme Google's OAuth redirect calls back
+        # into. This MUST be the reversed form of your Google OAuth client ID
+        # (an "iOS" type client in Google Cloud Console, which is the client
+        # type that supports custom-scheme redirects -- see Shared/GoogleOAuthConfig.swift
+        # and SETUP.md). Replace com.googleusercontent.apps.922556128890-mggq7hamqkik2htt4n9evpo5m3hh5jtl once you have
+        # real credentials, in BOTH places (here and GoogleOAuthConfig.swift),
+        # then run `xcodegen generate` again.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.dessimondi.Omnibus.oauth
+            CFBundleURLSchemes:
+              - com.googleusercontent.apps.922556128890-mggq7hamqkik2htt4n9evpo5m3hh5jtl
+    entitlements:
+      path: App/Omnibus.entitlements
+      properties:
+        com.apple.security.app-sandbox: false

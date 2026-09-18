@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sparkle's update feed. Kept at the repo root and referenced by SUFeedURL
+  (project.yml + App/Info.plist) via its raw.githubusercontent.com URL, so
+  publishing an update is just "edit this file, commit, push" -- no
+  separate hosting to manage. See AUTOUPDATE.md for the full release
+  workflow this fits into.
+
+  Empty right now (no <item> entries) -- Sparkle treats that as "no
+  updates available" rather than an error, so this is safe to ship as-is
+  until your first real release. Copy the commented-out <item> template
+  below for each new version.
+-->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Omnibus Updates</title>
+    <link>https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/Omnibus/main/appcast.xml</link>
+    <description>Update feed for Omnibus.</description>
+    <language>en</language>
+
+    <!--
+    <item>
+      <title>Version 0.2.0</title>
+      <description><![CDATA[
+        <ul>
+          <li>What changed in this release.</li>
+        </ul>
+      ]]></description>
+      <pubDate>Thu, 18 Sep 2026 12:00:00 +0000</pubDate>
+      <enclosure
+        url="https://github.com/YOUR_GITHUB_USERNAME/Omnibus/releases/download/v0.2.0/Omnibus.zip"
+        sparkle:version="2"
+        sparkle:shortVersionString="0.2.0"
+        length="0"
+        type="application/octet-stream"
+        sparkle:edSignature="PASTE_THE_SIGNATURE_sign_update_PRINTS_HERE" />
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+    </item>
+    -->
+  </channel>
+</rss>
