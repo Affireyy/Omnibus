@@ -56,7 +56,13 @@ struct GifPickerView: View {
                                     Rectangle().fill(Color.secondary.opacity(0.1))
                                 }
                             }
-                            .frame(height: 90)
+                            // Both dimensions must be pinned before
+                            // clipping -- scaledToFill alone lets the
+                            // image grow past its grid cell's width and
+                            // spill over neighboring tiles, which is what
+                            // looked like GIFs "overlapping" each other.
+                            .frame(maxWidth: .infinity, minHeight: 90, maxHeight: 90)
+                            .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         }
                         .buttonStyle(.plain)

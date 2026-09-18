@@ -452,13 +452,18 @@ public final class GoogleChatClient: Sendable {
     }
     /// A message's attachment as Chat's messages.get/list responses return
     /// it -- distinct from ChatAttachmentUploadResult above, which is what
-    /// *sending* an attachment returns. thumbnailUri/downloadUri both need
-    /// the same bearer token as every other Chat API call to load (see
-    /// AuthenticatedRemoteImage in Rows.swift), not a plain public URL.
+    /// *sending* an attachment returns. NOTE: Chat's own docs say
+    /// thumbnailUri/downloadUri are for a human to click in a browser --
+    /// "Chat apps shouldn't use this URL to download attachment content" --
+    /// so this deliberately does NOT use them. The real programmatic path
+    /// is attachmentDataRef.resourceName via the Media API (see
+    /// mediaDownloadURL below).
+    private struct AttachmentDataRefDTO: Decodable {
+        var resourceName: String?
+    }
     private struct IncomingAttachmentDTO: Decodable {
         var contentType: String?
-        var thumbnailUri: String?
-        var downloadUri: String?
+        var attachmentDataRef: AttachmentDataRefDTO?
     }
     private struct MessageDTO: Decodable {
         var name: String
@@ -487,7 +492,7 @@ public final class GoogleChatClient: Sendable {
             // neither text nor an image attachment to show.
             let imageAttachment = dto.attachment?.first { ($0.contentType ?? "").hasPrefix("image/") }
             guard !text.isEmpty || imageAttachment != nil else { return nil }
-            let imageURLString = imageAttachment?.thumbnailUri ?? imageAttachment?.downloadUri
+            let imageURL = imageAttachment?.attachmentDataRef?.resourceName.flatMap { Self.mediaDownloadURL(resourceName: $0) }
             return ChatMessageItem(
                 id: dto.name,
                 spaceID: space.name,
@@ -496,10 +501,20 @@ public final class GoogleChatClient: Sendable {
                 senderID: dto.sender?.name,
                 text: text,
                 createTime: createTime,
-                imageAttachmentURL: imageURLString.flatMap { URL(string: $0) },
+                imageAttachmentURL: imageURL,
                 imageAttachmentContentType: imageAttachment?.contentType
             )
         }
+    }
+
+    /// The Media API's download endpoint -- the actual, documented way to
+    /// programmatically fetch an attachment's bytes (thumbnailUri /
+    /// downloadUri on the Attachment resource are explicitly NOT for this,
+    /// per Chat's own docs). resourceName looks like
+    /// "spaces/AAA/messages/BBB/attachments/CCC" and is used as-is in the
+    /// path -- its slashes are structural, not something to percent-encode.
+    private static func mediaDownloadURL(resourceName: String) -> URL? {
+        URL(string: "https://chat.googleapis.com/v1/media/\(resourceName)?alt=media")
     }
 
     private static func parseTimestamp(_ raw: String) -> Date? {
