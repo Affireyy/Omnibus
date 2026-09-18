@@ -109,6 +109,20 @@ struct ChatRow: View {
 /// Wraps NSImageView (rather than SwiftUI's Image(nsImage:), which only
 /// ever shows a GIF's first frame) so an animated GIF attachment actually
 /// animates, the same way it would in Finder's Quick Look or a browser.
+///
+/// Cropping fix (3rd pass): NSImageView.imageScaling only governs its own
+/// *static* drawing path. Once .animates kicks in for a multi-frame GIF,
+/// AppKit plays the animation by swapping the CONTENTS of the view's
+/// backing CALayer every frame -- a path that answers to the layer's own
+/// contentsGravity, not to imageScaling. A layer's contentsGravity defaults
+/// to .resize (stretch) / can end up showing a frame at native pixel size
+/// anchored to a corner depending on how the layer was created, neither of
+/// which is "fit, preserving aspect ratio, whole picture visible" -- which
+/// is exactly the still-cropped symptom reported after two earlier fixes
+/// that only ever touched SwiftUI-side frame math, never this layer. Both
+/// imageScaling (belt) and contentsGravity (suspenders) are set so the
+/// fix holds regardless of which path AppKit actually uses for a given
+/// frame.
 struct AnimatedOrStaticImage: NSViewRepresentable {
     var image: NSImage
 
@@ -117,6 +131,12 @@ struct AnimatedOrStaticImage: NSViewRepresentable {
         view.imageScaling = .scaleProportionallyUpOrDown
         view.animates = true
         view.image = image
+        // wantsLayer isn't explicitly forced here -- SwiftUI's hosting
+        // hierarchy is layer-backed and that state is inherited down to
+        // this view once it's actually inserted, which hasn't happened
+        // yet at this point in makeNSView. contentsGravity is set in
+        // updateNSView instead, which runs after insertion and so has a
+        // real layer to configure.
         return view
     }
 
@@ -124,6 +144,25 @@ struct AnimatedOrStaticImage: NSViewRepresentable {
         if nsView.image !== image {
             nsView.image = image
         }
+        nsView.layer?.contentsGravity = .resizeAspect
+    }
+}
+
+extension NSImage {
+    /// The image's real pixel dimensions, read from its bitmap
+    /// representation rather than trusting `.size` -- which for an
+    /// NSImage built from raw GIF data via `NSImage(data:)` is derived
+    /// from the representation's DPI metadata and isn't guaranteed to
+    /// match the representation's actual pixelsWide/pixelsHigh 1:1 (GIFs
+    /// carry no DPI info of their own, so this is normally a no-op, but
+    /// falling back to `.size` only when no bitmap rep exists means the
+    /// fit math downstream is always working from the same numbers
+    /// AppKit itself uses to decide how a frame actually gets drawn).
+    var realPixelSize: CGSize {
+        if let rep = representations.first as? NSBitmapImageRep, rep.pixelsWide > 0, rep.pixelsHigh > 0 {
+            return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+        }
+        return size
     }
 }
 
@@ -182,12 +221,12 @@ struct RemoteAnimatedImage: View {
     private func imageContent(_ image: NSImage) -> some View {
         let sized = Group {
             if maxWidth.isFinite && maxHeight.isFinite {
-                let fitted = Self.fittedSize(for: image.size, maxWidth: maxWidth, maxHeight: maxHeight)
+                let fitted = Self.fittedSize(for: image.realPixelSize, maxWidth: maxWidth, maxHeight: maxHeight)
                 AnimatedOrStaticImage(image: image)
                     .frame(width: fitted.width, height: fitted.height)
             } else {
                 AnimatedOrStaticImage(image: image)
-                    .aspectRatio(image.size, contentMode: .fit)
+                    .aspectRatio(image.realPixelSize, contentMode: .fit)
             }
         }
         if let onTap {
@@ -352,7 +391,7 @@ struct ImageZoomOverlay: View {
             // Same explicit-fit math as RemoteAnimatedImage, for the same
             // reason: .aspectRatio(_:contentMode:) doesn't reliably fit
             // an NSViewRepresentable, and cropped here too before this.
-            let fitted = RemoteAnimatedImage.fittedSize(for: image.size, maxWidth: geo.size.width, maxHeight: geo.size.height)
+            let fitted = RemoteAnimatedImage.fittedSize(for: image.realPixelSize, maxWidth: geo.size.width, maxHeight: geo.size.height)
             AnimatedOrStaticImage(image: image)
                 .frame(width: fitted.width, height: fitted.height)
                 .scaleEffect(zoom)
