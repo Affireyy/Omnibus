@@ -53,6 +53,7 @@ struct RootView: View {
         .frame(minWidth: 980, minHeight: 640)
         .task {
             await store.refreshAll()
+            store.startAutoRefreshingChat()
         }
     }
 

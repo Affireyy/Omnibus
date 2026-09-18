@@ -147,6 +147,12 @@ struct RemoteAnimatedImage: View {
     /// its own outer `.frame` + `.clipped()`.
     var maxWidth: CGFloat = .infinity
     var maxHeight: CGFloat = .infinity
+    /// When set, the loaded image becomes tappable and calls this with
+    /// itself instead of doing nothing -- left nil in the GIF picker,
+    /// where the whole tile is already a Button of its own (a second,
+    /// unconditional tap recognizer here would fight that Button for the
+    /// gesture and could break picking a GIF entirely).
+    var onTap: ((NSImage) -> Void)? = nil
 
     @State private var image: NSImage?
     @State private var failed = false
@@ -155,14 +161,7 @@ struct RemoteAnimatedImage: View {
     var body: some View {
         Group {
             if let image {
-                if maxWidth.isFinite && maxHeight.isFinite {
-                    let fitted = Self.fittedSize(for: image.size, maxWidth: maxWidth, maxHeight: maxHeight)
-                    AnimatedOrStaticImage(image: image)
-                        .frame(width: fitted.width, height: fitted.height)
-                } else {
-                    AnimatedOrStaticImage(image: image)
-                        .aspectRatio(image.size, contentMode: .fit)
-                }
+                imageContent(image)
             } else if failed {
                 Rectangle()
                     .fill(Color.secondary.opacity(0.1))
@@ -177,6 +176,27 @@ struct RemoteAnimatedImage: View {
             }
         }
         .task(id: url) { await load() }
+    }
+
+    @ViewBuilder
+    private func imageContent(_ image: NSImage) -> some View {
+        let sized = Group {
+            if maxWidth.isFinite && maxHeight.isFinite {
+                let fitted = Self.fittedSize(for: image.size, maxWidth: maxWidth, maxHeight: maxHeight)
+                AnimatedOrStaticImage(image: image)
+                    .frame(width: fitted.width, height: fitted.height)
+            } else {
+                AnimatedOrStaticImage(image: image)
+                    .aspectRatio(image.size, contentMode: .fit)
+            }
+        }
+        if let onTap {
+            sized
+                .contentShape(Rectangle())
+                .onTapGesture { onTap(image) }
+        } else {
+            sized
+        }
     }
 
     /// The largest size that fits `imageSize` inside the given box while
@@ -224,6 +244,9 @@ struct AuthenticatedRemoteImage: View {
     var requiresAuth: Bool = true
     var maxWidth: CGFloat = 240
     var maxHeight: CGFloat = 240
+    /// Forwarded straight to RemoteAnimatedImage -- see its own onTap for
+    /// why this is opt-in rather than always attaching a tap gesture.
+    var onTap: ((NSImage) -> Void)? = nil
 
     @State private var token: String?
     @State private var tokenFailed = false
@@ -231,10 +254,10 @@ struct AuthenticatedRemoteImage: View {
     var body: some View {
         Group {
             if !requiresAuth {
-                RemoteAnimatedImage(url: url, maxWidth: maxWidth, maxHeight: maxHeight)
+                RemoteAnimatedImage(url: url, maxWidth: maxWidth, maxHeight: maxHeight, onTap: onTap)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else if let token {
-                RemoteAnimatedImage(url: url, authToken: token, maxWidth: maxWidth, maxHeight: maxHeight)
+                RemoteAnimatedImage(url: url, authToken: token, maxWidth: maxWidth, maxHeight: maxHeight, onTap: onTap)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else if tokenFailed {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -260,5 +283,91 @@ struct AuthenticatedRemoteImage: View {
         } catch {
             tokenFailed = true
         }
+    }
+}
+
+/// A full-size, zoomable look at a message's image, opened by tapping it
+/// in the thread (see ThreadMessageRow) -- shown centered over the whole
+/// window instead of the small inline bubble size. Scroll/pinch (trackpad
+/// magnification) zooms, drag pans once zoomed in, and double-clicking
+/// toggles between fit and a closer look. Click the dimmed background or
+/// the close button, or press Escape, to dismiss.
+struct ImageZoomOverlay: View {
+    var image: NSImage
+    var onDismiss: () -> Void
+
+    @State private var zoom: CGFloat = 1
+    @State private var lastZoom: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.85)
+                .ignoresSafeArea()
+                .onTapGesture { onDismiss() }
+
+            AnimatedOrStaticImage(image: image)
+                .aspectRatio(image.size, contentMode: .fit)
+                .scaleEffect(zoom)
+                .offset(offset)
+                .padding(48)
+                .gesture(
+                    MagnificationGesture()
+                        .onChanged { value in
+                            zoom = min(max(lastZoom * value, 1), 6)
+                        }
+                        .onEnded { _ in
+                            lastZoom = zoom
+                            if zoom <= 1 {
+                                zoom = 1
+                                lastZoom = 1
+                                offset = .zero
+                                lastOffset = .zero
+                            }
+                        }
+                )
+                .simultaneousGesture(
+                    DragGesture()
+                        .onChanged { value in
+                            guard zoom > 1 else { return }
+                            offset = CGSize(
+                                width: lastOffset.width + value.translation.width,
+                                height: lastOffset.height + value.translation.height
+                            )
+                        }
+                        .onEnded { _ in lastOffset = offset }
+                )
+                .onTapGesture(count: 2) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if zoom > 1 {
+                            zoom = 1
+                            lastZoom = 1
+                            offset = .zero
+                            lastOffset = .zero
+                        } else {
+                            zoom = 2.5
+                            lastZoom = 2.5
+                        }
+                    }
+                }
+
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title)
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(20)
+                }
+                Spacer()
+            }
+        }
+        // Escape closes it too, not just clicking away -- the usual
+        // expectation for anything that opens over the whole window.
+        .onExitCommand(perform: onDismiss)
     }
 }

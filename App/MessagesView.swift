@@ -19,6 +19,7 @@ struct MessagesView: View {
     @State private var listWidth: CGFloat = 280
     @State private var dragStartWidth: CGFloat?
     @State private var isShowingNewChat = false
+    @State private var zoomedImage: NSImage?
 
     private let minListWidth: CGFloat = 220
     private let minDetailWidth: CGFloat = 320
@@ -86,6 +87,14 @@ struct MessagesView: View {
                 onSearch: { query in await store.searchChatDirectory(query: query) },
                 onDismiss: { isShowingNewChat = false }
             )
+        }
+        // Covers the whole Messages panel (not just the thread pane) so a
+        // zoomed image sits centered over everything, not squeezed into
+        // whatever space the thread column happened to have.
+        .overlay {
+            if let zoomedImage {
+                ImageZoomOverlay(image: zoomedImage) { self.zoomedImage = nil }
+            }
         }
     }
 
@@ -192,7 +201,8 @@ struct MessagesView: View {
                                 ThreadMessageRow(
                                     message: message,
                                     photoURL: photoURL(for: message),
-                                    isOwnMessage: isOwnMessage(message)
+                                    isOwnMessage: isOwnMessage(message),
+                                    onImageTap: { zoomedImage = $0 }
                                 )
                             }
                         }
@@ -352,6 +362,9 @@ private struct ThreadMessageRow: View {
     /// Puts this row on the right (your own messages) vs. the left
     /// (everyone else's), the same convention every chat app uses.
     var isOwnMessage: Bool
+    /// Tapping this message's image opens it full-size and zoomable (see
+    /// MessagesView's ImageZoomOverlay) instead of doing nothing.
+    var onImageTap: (NSImage) -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -373,7 +386,11 @@ private struct ThreadMessageRow: View {
                     }
                 }
                 if let imageAttachmentURL = message.imageAttachmentURL {
-                    AuthenticatedRemoteImage(url: imageAttachmentURL, requiresAuth: message.imageAttachmentRequiresAuth)
+                    AuthenticatedRemoteImage(
+                        url: imageAttachmentURL,
+                        requiresAuth: message.imageAttachmentRequiresAuth,
+                        onTap: onImageTap
+                    )
                 }
                 if !message.text.isEmpty {
                     Text(message.text)

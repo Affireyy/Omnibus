@@ -112,6 +112,28 @@ public final class OmnibusStore: ObservableObject {
         persistSnapshot()
     }
 
+    /// Chat's REST API has no push/streaming option for a third-party app
+    /// like Omnibus (confirmed against Google's own API reference -- no
+    /// typing indicator either, for the same reason), so "live" messages
+    /// means short-polling: quietly re-fetch Chat on a timer instead of
+    /// only when the person presses the refresh button. Started once, for
+    /// the app's whole lifetime (see RootView), so a message that arrives
+    /// while you're on a different screen is already there once you
+    /// switch to Messages, rather than waiting for you to open it and
+    /// starting the clock only then.
+    private var chatPollingTask: Task<Void, Never>?
+
+    public func startAutoRefreshingChat() {
+        guard chatPollingTask == nil else { return }
+        chatPollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard !Task.isCancelled else { break }
+                await self?.refreshChat()
+            }
+        }
+    }
+
     public func refreshSchoolSoft() async {
         guard let creds = storedSchoolSoftCredentials() else { return }
         isSyncingSchoolSoft = true
