@@ -127,29 +127,91 @@ struct AnimatedOrStaticImage: NSViewRepresentable {
     }
 }
 
-/// A Chat message's image attachment (a photo, or a GIF sent via the
-/// compose bar's GIF picker) -- Chat's thumbnailUri/downloadUri both need
-/// the same bearer token as every other Chat API call, so plain SwiftUI
-/// AsyncImage(url:) (no custom headers) can't load them directly. This
-/// fetches the bytes itself with GoogleAuthManager's token, then renders
-/// through AnimatedOrStaticImage above so GIFs actually animate instead
-/// of freezing on their first frame.
-struct AuthenticatedRemoteImage: View {
+/// Loads an image from a URL (optionally with a bearer token) and renders
+/// it through AnimatedOrStaticImage above so GIFs actually animate. This
+/// is the shared plumbing behind both AuthenticatedRemoteImage below
+/// (Chat's own uploaded attachments, which need Chat's OAuth token) and
+/// the GIF picker's preview grid (plain public GIPHY/Tenor URLs, which
+/// don't) -- sizing and cropping are entirely up to the caller via
+/// .frame/.clipShape, same as if this were AsyncImage.
+struct RemoteAnimatedImage: View {
     var url: URL
-    var maxWidth: CGFloat = 240
-    var maxHeight: CGFloat = 240
+    var authToken: String? = nil
 
     @State private var image: NSImage?
     @State private var failed = false
+    @State private var loadedURL: URL?
 
     var body: some View {
         Group {
             if let image {
                 AnimatedOrStaticImage(image: image)
                     .aspectRatio(image.size, contentMode: .fit)
+            } else if failed {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.1))
+                    .overlay {
+                        Image(systemName: "photo")
+                            .foregroundStyle(.secondary)
+                    }
+            } else {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.1))
+                    .overlay { ProgressView().controlSize(.small) }
+            }
+        }
+        .task(id: url) { await load() }
+    }
+
+    private func load() async {
+        guard loadedURL != url else { return }
+        failed = false
+        image = nil
+        do {
+            var request = URLRequest(url: url)
+            if let authToken {
+                request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+            }
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let nsImage = NSImage(data: data) else {
+                failed = true
+                return
+            }
+            image = nsImage
+            loadedURL = url
+        } catch {
+            failed = true
+        }
+    }
+}
+
+/// A Chat message's image (a real uploaded attachment, or a GIF sent
+/// through Chat's own native "Add GIF" button -- see
+/// ChatMessageItem.imageAttachmentRequiresAuth for which is which). An
+/// uploaded attachment's Media API URL needs the same bearer token as
+/// every other Chat API call; a native GIF pick's URL is already a plain
+/// public one and must NOT get our Chat token (wrong host entirely).
+struct AuthenticatedRemoteImage: View {
+    var url: URL
+    var requiresAuth: Bool = true
+    var maxWidth: CGFloat = 240
+    var maxHeight: CGFloat = 240
+
+    @State private var token: String?
+    @State private var tokenFailed = false
+
+    var body: some View {
+        Group {
+            if !requiresAuth {
+                RemoteAnimatedImage(url: url)
                     .frame(maxWidth: maxWidth, maxHeight: maxHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            } else if failed {
+            } else if let token {
+                RemoteAnimatedImage(url: url, authToken: token)
+                    .frame(maxWidth: maxWidth, maxHeight: maxHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else if tokenFailed {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.secondary.opacity(0.1))
                     .frame(width: 120, height: 90)
@@ -162,25 +224,16 @@ struct AuthenticatedRemoteImage: View {
                     .fill(Color.secondary.opacity(0.1))
                     .frame(width: 120, height: 90)
                     .overlay { ProgressView().controlSize(.small) }
-                    .task { await load() }
+                    .task { await loadToken() }
             }
         }
     }
 
-    private func load() async {
+    private func loadToken() async {
         do {
-            let token = try await GoogleAuthManager.shared.validAccessToken()
-            var request = URLRequest(url: url)
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
-                  let nsImage = NSImage(data: data) else {
-                failed = true
-                return
-            }
-            image = nsImage
+            token = try await GoogleAuthManager.shared.validAccessToken()
         } catch {
-            failed = true
+            tokenFailed = true
         }
     }
 }

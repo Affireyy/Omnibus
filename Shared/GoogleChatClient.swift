@@ -20,17 +20,24 @@ public struct ChatMessageItem: Identifiable, Sendable, Equatable {
     /// it did nothing while the request is in flight. Never true for a
     /// message that actually came back from the Chat API.
     public var isPending: Bool = false
-    /// The first image-type attachment on this message (a photo, or a GIF
-    /// sent via the compose bar's GIF picker), if any -- Chat's own
-    /// thumbnail/download URLs, which need the same bearer token as every
-    /// other Chat API call to load (see AuthenticatedRemoteImage in
-    /// Rows.swift), not a plain public image URL.
+    /// The image on this message, if any -- either a photo/GIF someone
+    /// uploaded as a real file attachment (message.attachment, fetched via
+    /// the Media API), or a GIF sent through Chat's own native "Add GIF"
+    /// button (message.attachedGifs -- a completely separate field, whose
+    /// uri is already a plain public CDN link). See imageAttachmentRequiresAuth.
     public var imageAttachmentURL: URL? = nil
     /// The attachment's MIME type (e.g. "image/gif", "image/png"), kept
     /// alongside the URL above just so an attachment-only message's
     /// conversation-list preview can say "GIF" vs "Photo" -- see
     /// ChatMessageItem.previewText.
     public var imageAttachmentContentType: String? = nil
+    /// True when imageAttachmentURL needs the same bearer token as every
+    /// other Chat API call to load (a message.attachment, downloaded via
+    /// the Media API) -- false for message.attachedGifs, whose uri is
+    /// already a plain public URL (same as GIPHY's own preview URLs in
+    /// the picker), so sending our Chat token there would be pointless
+    /// (and wrong -- it's not even a Google-owned host).
+    public var imageAttachmentRequiresAuth: Bool = true
 
     /// What to show where the raw `text` would normally go when it might
     /// be empty -- an attachment-only message (most commonly a GIF sent
@@ -465,12 +472,21 @@ public final class GoogleChatClient: Sendable {
         var contentType: String?
         var attachmentDataRef: AttachmentDataRefDTO?
     }
+    /// Chat's native "Add GIF" button (Tenor picker built into the Chat
+    /// web/mobile client) -- a completely separate field from `attachment`
+    /// above, which is only for user-uploaded files (including Omnibus's
+    /// own GIF picker, which uploads a GIF like any other file). uri is
+    /// already a plain, publicly-fetchable URL.
+    private struct AttachedGifDTO: Decodable {
+        var uri: String?
+    }
     private struct MessageDTO: Decodable {
         var name: String
         var text: String?
         var createTime: String
         var sender: SenderDTO?
         var attachment: [IncomingAttachmentDTO]?
+        var attachedGifs: [AttachedGifDTO]?
     }
     private struct MessagesResponse: Decodable {
         var messages: [MessageDTO]?
@@ -487,12 +503,39 @@ public final class GoogleChatClient: Sendable {
         return (response.messages ?? []).compactMap { dto in
             guard let createTime = Self.parseTimestamp(dto.createTime) else { return nil }
             let text = dto.text ?? ""
+
+            // Two unrelated ways Chat can put an image on a message: a
+            // native "Add GIF" pick (attachedGifs -- a plain public URL,
+            // checked first since it's the simpler/more common case for
+            // anything not sent by Omnibus itself) or a real uploaded file
+            // (attachment -- including Omnibus's own GIF picker, which
+            // uploads like any other file, and needs the Media API + our
+            // bearer token to actually fetch).
+            let imageAttachment = dto.attachment?.first { ($0.contentType ?? "").hasPrefix("image/") }
+            let attachedGifURL = dto.attachedGifs?.first?.uri.flatMap { URL(string: $0) }
+
+            let imageURL: URL?
+            let imageContentType: String?
+            let imageRequiresAuth: Bool
+            if let attachedGifURL {
+                imageURL = attachedGifURL
+                imageContentType = "image/gif"
+                imageRequiresAuth = false
+            } else if let imageAttachment {
+                imageURL = imageAttachment.attachmentDataRef?.resourceName.flatMap { Self.mediaDownloadURL(resourceName: $0) }
+                imageContentType = imageAttachment.contentType
+                imageRequiresAuth = true
+            } else {
+                imageURL = nil
+                imageContentType = nil
+                imageRequiresAuth = true
+            }
+
             // An attachment-only message (most commonly a GIF sent with no
             // caption) has empty text -- only drop the message if it has
-            // neither text nor an image attachment to show.
-            let imageAttachment = dto.attachment?.first { ($0.contentType ?? "").hasPrefix("image/") }
-            guard !text.isEmpty || imageAttachment != nil else { return nil }
-            let imageURL = imageAttachment?.attachmentDataRef?.resourceName.flatMap { Self.mediaDownloadURL(resourceName: $0) }
+            // neither text nor an image to show.
+            guard !text.isEmpty || imageURL != nil else { return nil }
+
             return ChatMessageItem(
                 id: dto.name,
                 spaceID: space.name,
@@ -502,7 +545,8 @@ public final class GoogleChatClient: Sendable {
                 text: text,
                 createTime: createTime,
                 imageAttachmentURL: imageURL,
-                imageAttachmentContentType: imageAttachment?.contentType
+                imageAttachmentContentType: imageContentType,
+                imageAttachmentRequiresAuth: imageRequiresAuth
             )
         }
     }

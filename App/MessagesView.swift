@@ -189,7 +189,11 @@ struct MessagesView: View {
                                 .padding(.top, 10)
                         } else {
                             ForEach(thread) { message in
-                                ThreadMessageRow(message: message, photoURL: photoURL(for: message))
+                                ThreadMessageRow(
+                                    message: message,
+                                    photoURL: photoURL(for: message),
+                                    isOwnMessage: isOwnMessage(message)
+                                )
                             }
                         }
                     }
@@ -275,6 +279,15 @@ struct MessagesView: View {
         return store.directoryProfiles[id]?.photoURL
     }
 
+    /// A message this device sent -- always true for a still-pending one
+    /// (it can only ever be ours), otherwise a match against our own
+    /// signed-in account id. Drives ThreadMessageRow's left/right layout.
+    private func isOwnMessage(_ message: ChatMessageItem) -> Bool {
+        if message.isPending { return true }
+        guard let senderID = message.senderID, let accountID = auth.accountID else { return false }
+        return senderID == "users/\(accountID)"
+    }
+
     /// Keeps the selection pointed at a conversation that's actually still
     /// in view -- picks the most recent one by default, and re-picks if a
     /// search narrows the list past the current selection.
@@ -336,12 +349,17 @@ private struct ConversationRow: View {
 private struct ThreadMessageRow: View {
     var message: ChatMessageItem
     var photoURL: URL?
+    /// Puts this row on the right (your own messages) vs. the left
+    /// (everyone else's), the same convention every chat app uses.
+    var isOwnMessage: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            PersonAvatar(name: message.senderDisplayName, photoURL: photoURL, diameter: 30)
+            if !isOwnMessage {
+                PersonAvatar(name: message.senderDisplayName, photoURL: photoURL, diameter: 30)
+            }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: isOwnMessage ? .trailing : .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(message.senderDisplayName)
                         .font(.caption.weight(.semibold))
@@ -355,15 +373,27 @@ private struct ThreadMessageRow: View {
                     }
                 }
                 if let imageAttachmentURL = message.imageAttachmentURL {
-                    AuthenticatedRemoteImage(url: imageAttachmentURL)
+                    AuthenticatedRemoteImage(url: imageAttachmentURL, requiresAuth: message.imageAttachmentRequiresAuth)
                 }
                 if !message.text.isEmpty {
                     Text(message.text)
                         .font(.subheadline)
                         .foregroundStyle(message.isPending ? .secondary : .primary)
                         .textSelection(.enabled)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            isOwnMessage ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1),
+                            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        )
                 }
             }
+            .frame(maxWidth: 440, alignment: isOwnMessage ? .trailing : .leading)
+
+            if isOwnMessage {
+                PersonAvatar(name: message.senderDisplayName, photoURL: photoURL, diameter: 30)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: isOwnMessage ? .trailing : .leading)
     }
 }

@@ -49,21 +49,17 @@ struct GifPickerView: View {
                         Button {
                             pick(gif)
                         } label: {
-                            AsyncImage(url: gif.previewURL) { phase in
-                                if case .success(let image) = phase {
-                                    image.resizable().scaledToFill()
-                                } else {
-                                    Rectangle().fill(Color.secondary.opacity(0.1))
-                                }
-                            }
-                            // Both dimensions must be pinned before
-                            // clipping -- scaledToFill alone lets the
-                            // image grow past its grid cell's width and
-                            // spill over neighboring tiles, which is what
-                            // looked like GIFs "overlapping" each other.
-                            .frame(maxWidth: .infinity, minHeight: 90, maxHeight: 90)
-                            .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            // RemoteAnimatedImage (backed by NSImageView,
+                            // not SwiftUI's Image) actually animates GIFs
+                            // here, and its NSViewRepresentable frame is a
+                            // hard bound set by SwiftUI -- unlike
+                            // AsyncImage+scaledToFill, which could grow
+                            // past its grid cell for a differently-shaped
+                            // GIF and spill into neighboring tiles.
+                            RemoteAnimatedImage(url: gif.previewURL)
+                                .frame(maxWidth: .infinity, minHeight: 90, maxHeight: 90)
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .disabled(isDownloading)
