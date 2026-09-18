@@ -202,7 +202,7 @@ struct RemoteAnimatedImage: View {
     /// The largest size that fits `imageSize` inside the given box while
     /// keeping its aspect ratio -- plain letterbox-fit math, computed
     /// ourselves rather than leant on a SwiftUI layout modifier.
-    private static func fittedSize(for imageSize: CGSize, maxWidth: CGFloat, maxHeight: CGFloat) -> CGSize {
+    static func fittedSize(for imageSize: CGSize, maxWidth: CGFloat, maxHeight: CGFloat) -> CGSize {
         guard imageSize.width > 0, imageSize.height > 0 else {
             return CGSize(width: min(maxWidth, 120), height: min(maxHeight, 90))
         }
@@ -300,18 +300,64 @@ struct ImageZoomOverlay: View {
     @State private var lastZoom: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.85)
+            // Dims the whole panel behind it (so clicking anywhere outside
+            // the card still closes it), but the picture itself sits in a
+            // bounded floating card below -- not stretched edge to edge.
+            Color.black.opacity(0.5)
                 .ignoresSafeArea()
                 .onTapGesture { onDismiss() }
 
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(10)
+
+                imageArea
+                    .padding([.horizontal, .bottom], 14)
+            }
+            .frame(maxWidth: 560, maxHeight: 460)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(radius: 30)
+            .padding(30)
+        }
+        .focusable()
+        .focused($isFocused)
+        .onAppear { isFocused = true }
+        // The reliable way to catch Escape here -- onExitCommand alone
+        // needs this view to already be first responder, which an
+        // overlay just appearing on top doesn't automatically become;
+        // grabbing focus above is what actually makes either of these
+        // fire.
+        .onKeyPress(.escape) {
+            onDismiss()
+            return .handled
+        }
+        .onExitCommand(perform: onDismiss)
+    }
+
+    private var imageArea: some View {
+        GeometryReader { geo in
+            // Same explicit-fit math as RemoteAnimatedImage, for the same
+            // reason: .aspectRatio(_:contentMode:) doesn't reliably fit
+            // an NSViewRepresentable, and cropped here too before this.
+            let fitted = RemoteAnimatedImage.fittedSize(for: image.size, maxWidth: geo.size.width, maxHeight: geo.size.height)
             AnimatedOrStaticImage(image: image)
-                .aspectRatio(image.size, contentMode: .fit)
+                .frame(width: fitted.width, height: fitted.height)
                 .scaleEffect(zoom)
                 .offset(offset)
-                .padding(48)
+                .position(x: geo.size.width / 2, y: geo.size.height / 2)
                 .gesture(
                     MagnificationGesture()
                         .onChanged { value in
@@ -351,23 +397,6 @@ struct ImageZoomOverlay: View {
                         }
                     }
                 }
-
-            VStack {
-                HStack {
-                    Spacer()
-                    Button(action: onDismiss) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title)
-                            .foregroundStyle(.white.opacity(0.9))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(20)
-                }
-                Spacer()
-            }
         }
-        // Escape closes it too, not just clicking away -- the usual
-        // expectation for anything that opens over the whole window.
-        .onExitCommand(perform: onDismiss)
     }
 }
