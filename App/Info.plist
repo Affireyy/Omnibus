@@ -41,9 +41,9 @@
 		<false/>
 	</dict>
 	<key>SUFeedURL</key>
-	<string>https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/Omnibus/main/appcast.xml</string>
+	<string>https://raw.githubusercontent.com/Affireyy/Omnibus/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>REPLACE_WITH_YOUR_SPARKLE_PUBLIC_KEY</string>
+	<string>J1x8Iu8W4VLz4Dt8LBfB5lj230F7kW81zB9UWJz2BiY=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUScheduledCheckInterval</key>

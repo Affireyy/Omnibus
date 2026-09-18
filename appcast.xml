@@ -14,7 +14,7 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
     <title>Omnibus Updates</title>
-    <link>https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/Omnibus/main/appcast.xml</link>
+    <link>https://raw.githubusercontent.com/Affireyy/Omnibus/main/appcast.xml</link>
     <description>Update feed for Omnibus.</description>
     <language>en</language>
 
@@ -28,7 +28,7 @@
       ]]></description>
       <pubDate>Thu, 18 Sep 2026 12:00:00 +0000</pubDate>
       <enclosure
-        url="https://github.com/YOUR_GITHUB_USERNAME/Omnibus/releases/download/v0.2.0/Omnibus.zip"
+        url="https://github.com/Affireyy/Omnibus/releases/download/v0.2.0/Omnibus.zip"
         sparkle:version="2"
         sparkle:shortVersionString="0.2.0"
         length="0"

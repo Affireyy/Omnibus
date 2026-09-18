@@ -55,8 +55,8 @@ targets:
         # placeholders until you've generated your own signing key and
         # created the GitHub repo the feed lives in; the app runs fine
         # without them, it just won't find any updates yet.
-        SUFeedURL: "https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/Omnibus/main/appcast.xml"
-        SUPublicEDKey: "REPLACE_WITH_YOUR_SPARKLE_PUBLIC_KEY"
+        SUFeedURL: "https://raw.githubusercontent.com/Affireyy/Omnibus/main/appcast.xml"
+        SUPublicEDKey: "J1x8Iu8W4VLz4Dt8LBfB5lj230F7kW81zB9UWJz2BiY="
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 86400
         # Registers the custom URL scheme Google's OAuth redirect calls back
