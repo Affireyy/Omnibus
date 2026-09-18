@@ -9,5 +9,5 @@ import Foundation
 /// not SDK). The "Beta" key GIPHY hands out immediately works fine for
 /// personal use; full walkthrough in SETUP.md at the project root.
 public enum GiphyConfig {
-    public static let apiKey = "YOUR_GIPHY_API_KEY"
+    public static let apiKey = "dhjZjl764Gs3RPh1Toe5wgA5aWkqtwUK"
 }
