@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Shared row views used across Today / Schedule / Coursework / Messages /
 /// Subject screens, so the same kind of item always looks the same no
@@ -102,6 +103,84 @@ struct ChatRow: View {
                 .font(.subheadline)
                 .lineLimit(3)
                 .foregroundStyle(.primary)
+        }
+    }
+}
+/// Wraps NSImageView (rather than SwiftUI's Image(nsImage:), which only
+/// ever shows a GIF's first frame) so an animated GIF attachment actually
+/// animates, the same way it would in Finder's Quick Look or a browser.
+struct AnimatedOrStaticImage: NSViewRepresentable {
+    var image: NSImage
+
+    func makeNSView(context: Context) -> NSImageView {
+        let view = NSImageView()
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.animates = true
+        view.image = image
+        return view
+    }
+
+    func updateNSView(_ nsView: NSImageView, context: Context) {
+        if nsView.image !== image {
+            nsView.image = image
+        }
+    }
+}
+
+/// A Chat message's image attachment (a photo, or a GIF sent via the
+/// compose bar's GIF picker) -- Chat's thumbnailUri/downloadUri both need
+/// the same bearer token as every other Chat API call, so plain SwiftUI
+/// AsyncImage(url:) (no custom headers) can't load them directly. This
+/// fetches the bytes itself with GoogleAuthManager's token, then renders
+/// through AnimatedOrStaticImage above so GIFs actually animate instead
+/// of freezing on their first frame.
+struct AuthenticatedRemoteImage: View {
+    var url: URL
+    var maxWidth: CGFloat = 240
+    var maxHeight: CGFloat = 240
+
+    @State private var image: NSImage?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                AnimatedOrStaticImage(image: image)
+                    .aspectRatio(image.size, contentMode: .fit)
+                    .frame(maxWidth: maxWidth, maxHeight: maxHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else if failed {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.secondary.opacity(0.1))
+                    .frame(width: 120, height: 90)
+                    .overlay {
+                        Image(systemName: "photo")
+                            .foregroundStyle(.secondary)
+                    }
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.secondary.opacity(0.1))
+                    .frame(width: 120, height: 90)
+                    .overlay { ProgressView().controlSize(.small) }
+                    .task { await load() }
+            }
+        }
+    }
+
+    private func load() async {
+        do {
+            let token = try await GoogleAuthManager.shared.validAccessToken()
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let nsImage = NSImage(data: data) else {
+                failed = true
+                return
+            }
+            image = nsImage
+        } catch {
+            failed = true
         }
     }
 }

@@ -354,10 +354,15 @@ private struct ThreadMessageRow: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text(message.text)
-                    .font(.subheadline)
-                    .foregroundStyle(message.isPending ? .secondary : .primary)
-                    .textSelection(.enabled)
+                if let imageAttachmentURL = message.imageAttachmentURL {
+                    AuthenticatedRemoteImage(url: imageAttachmentURL)
+                }
+                if !message.text.isEmpty {
+                    Text(message.text)
+                        .font(.subheadline)
+                        .foregroundStyle(message.isPending ? .secondary : .primary)
+                        .textSelection(.enabled)
+                }
             }
         }
     }

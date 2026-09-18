@@ -20,6 +20,27 @@ public struct ChatMessageItem: Identifiable, Sendable, Equatable {
     /// it did nothing while the request is in flight. Never true for a
     /// message that actually came back from the Chat API.
     public var isPending: Bool = false
+    /// The first image-type attachment on this message (a photo, or a GIF
+    /// sent via the compose bar's GIF picker), if any -- Chat's own
+    /// thumbnail/download URLs, which need the same bearer token as every
+    /// other Chat API call to load (see AuthenticatedRemoteImage in
+    /// Rows.swift), not a plain public image URL.
+    public var imageAttachmentURL: URL? = nil
+    /// The attachment's MIME type (e.g. "image/gif", "image/png"), kept
+    /// alongside the URL above just so an attachment-only message's
+    /// conversation-list preview can say "GIF" vs "Photo" -- see
+    /// ChatMessageItem.previewText.
+    public var imageAttachmentContentType: String? = nil
+
+    /// What to show where the raw `text` would normally go when it might
+    /// be empty -- an attachment-only message (most commonly a GIF sent
+    /// with no caption) has nothing else to show in a one-line preview
+    /// like the conversation list.
+    public var previewText: String {
+        guard text.isEmpty else { return text }
+        guard imageAttachmentURL != nil else { return text }
+        return imageAttachmentContentType == "image/gif" ? "📎 GIF" : "📎 Photo"
+    }
 }
 
 /// A space you're a member of, exposed publicly so the UI can offer a
@@ -429,11 +450,22 @@ public final class GoogleChatClient: Sendable {
         var displayName: String?
         var type: String?
     }
+    /// A message's attachment as Chat's messages.get/list responses return
+    /// it -- distinct from ChatAttachmentUploadResult above, which is what
+    /// *sending* an attachment returns. thumbnailUri/downloadUri both need
+    /// the same bearer token as every other Chat API call to load (see
+    /// AuthenticatedRemoteImage in Rows.swift), not a plain public URL.
+    private struct IncomingAttachmentDTO: Decodable {
+        var contentType: String?
+        var thumbnailUri: String?
+        var downloadUri: String?
+    }
     private struct MessageDTO: Decodable {
         var name: String
         var text: String?
         var createTime: String
         var sender: SenderDTO?
+        var attachment: [IncomingAttachmentDTO]?
     }
     private struct MessagesResponse: Decodable {
         var messages: [MessageDTO]?
@@ -448,7 +480,14 @@ public final class GoogleChatClient: Sendable {
         let response: MessagesResponse = try await get(components.url!, token: token)
 
         return (response.messages ?? []).compactMap { dto in
-            guard let text = dto.text, !text.isEmpty, let createTime = Self.parseTimestamp(dto.createTime) else { return nil }
+            guard let createTime = Self.parseTimestamp(dto.createTime) else { return nil }
+            let text = dto.text ?? ""
+            // An attachment-only message (most commonly a GIF sent with no
+            // caption) has empty text -- only drop the message if it has
+            // neither text nor an image attachment to show.
+            let imageAttachment = dto.attachment?.first { ($0.contentType ?? "").hasPrefix("image/") }
+            guard !text.isEmpty || imageAttachment != nil else { return nil }
+            let imageURLString = imageAttachment?.thumbnailUri ?? imageAttachment?.downloadUri
             return ChatMessageItem(
                 id: dto.name,
                 spaceID: space.name,
@@ -456,7 +495,9 @@ public final class GoogleChatClient: Sendable {
                 senderDisplayName: dto.sender?.displayName ?? (dto.sender?.type == "BOT" ? "Bot" : "Someone"),
                 senderID: dto.sender?.name,
                 text: text,
-                createTime: createTime
+                createTime: createTime,
+                imageAttachmentURL: imageURLString.flatMap { URL(string: $0) },
+                imageAttachmentContentType: imageAttachment?.contentType
             )
         }
     }

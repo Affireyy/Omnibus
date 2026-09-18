@@ -13,6 +13,7 @@ struct ComposeBar: View {
     @State private var draft = ""
     @State private var attachedFileURL: URL?
     @State private var attachmentError: String?
+    @State private var isShowingGifPicker = false
 
     var body: some View {
         if store.chatSpaces.isEmpty {
@@ -63,12 +64,16 @@ struct ComposeBar: View {
                 }
 
                 HStack(spacing: 8) {
-                    Button(action: chooseFile) {
+                    Menu {
+                        Button("GIFs") { isShowingGifPicker = true }
+                        Button("Attach Files") { chooseFile() }
+                    } label: {
                         Image(systemName: "paperclip")
                     }
-                    .buttonStyle(.borderless)
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
                     .disabled(store.isSendingChatMessage)
-                    .help("Attach a file")
+                    .help("Attach a GIF or file")
 
                     TextField("Message…", text: $draft)
                         .textFieldStyle(.roundedBorder)
@@ -92,6 +97,16 @@ struct ComposeBar: View {
             .onAppear { syncSelection() }
             .onChange(of: store.chatSpaces) { _, _ in syncSelection() }
             .onChange(of: preferredSpaceID) { _, _ in syncSelection() }
+            .sheet(isPresented: $isShowingGifPicker) {
+                GifPickerView { url in
+                    if let reason = GoogleChatClient.blockedAttachmentReason(for: url) {
+                        attachmentError = reason
+                        return
+                    }
+                    attachmentError = nil
+                    attachedFileURL = url
+                }
+            }
         }
     }
 

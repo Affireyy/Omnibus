@@ -77,6 +77,27 @@ Build and run, open **Settings** (gear icon), click **Sign in with
 Google**. A system browser sheet opens; after you approve, it redirects
 back into Omnibus automatically.
 
+## 7. GIFs in Chat (optional)
+
+The paperclip menu in the compose bar's "GIFs" option searches
+[GIPHY](https://developers.giphy.com). Without a key it just shows an
+error when you open it -- everything else in the app works fine without
+this step.
+
+1. Go to https://developers.giphy.com, sign in, **Create an App**.
+2. Choose **API** (not SDK) when asked what kind of app.
+3. Copy the key it gives you and paste it into `Shared/GiphyConfig.swift`:
+   ```swift
+   public static let apiKey = "your-key-here"
+   ```
+
+That's it -- no redirect URI or bundle ID matching needed, it's a plain
+API key sent with each request.
+
+(Why GIPHY and not Tenor, Google's own GIF API? Tenor stopped accepting
+new API clients in January 2026, so it's not an option for a new app
+anymore.)
+
 ## About your school Google account
 
 If your Classroom/Chat account is a school-managed Google Workspace
