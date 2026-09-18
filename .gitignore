@@ -13,3 +13,7 @@ xcuserdata/
 
 # Sparkle release artifacts -- built locally each release, not source.
 *.zip
+
+# Downloaded by scripts/setup-autoupdate.sh -- the generate_keys/sign_update
+# binaries themselves, not something to track.
+.sparkle-tools/
