@@ -132,11 +132,21 @@ struct AnimatedOrStaticImage: NSViewRepresentable {
 /// is the shared plumbing behind both AuthenticatedRemoteImage below
 /// (Chat's own uploaded attachments, which need Chat's OAuth token) and
 /// the GIF picker's preview grid (plain public GIPHY/Tenor URLs, which
-/// don't) -- sizing and cropping are entirely up to the caller via
-/// .frame/.clipShape, same as if this were AsyncImage.
+/// don't).
 struct RemoteAnimatedImage: View {
     var url: URL
     var authToken: String? = nil
+    /// When both are finite, the loaded image gets an explicit, computed
+    /// `.frame(width:height:)` that fits within this box while keeping
+    /// its own aspect ratio -- more reliable here than SwiftUI's
+    /// `.aspectRatio(_:contentMode:)` modifier, which doesn't negotiate
+    /// size the same way for an NSViewRepresentable as it does for a
+    /// plain SwiftUI Image, and was cropping GIFs instead of fitting the
+    /// whole picture in them. Left `.infinity` (the default) for a grid
+    /// tile, where the caller (the GIF picker) already bounds this with
+    /// its own outer `.frame` + `.clipped()`.
+    var maxWidth: CGFloat = .infinity
+    var maxHeight: CGFloat = .infinity
 
     @State private var image: NSImage?
     @State private var failed = false
@@ -145,8 +155,14 @@ struct RemoteAnimatedImage: View {
     var body: some View {
         Group {
             if let image {
-                AnimatedOrStaticImage(image: image)
-                    .aspectRatio(image.size, contentMode: .fit)
+                if maxWidth.isFinite && maxHeight.isFinite {
+                    let fitted = Self.fittedSize(for: image.size, maxWidth: maxWidth, maxHeight: maxHeight)
+                    AnimatedOrStaticImage(image: image)
+                        .frame(width: fitted.width, height: fitted.height)
+                } else {
+                    AnimatedOrStaticImage(image: image)
+                        .aspectRatio(image.size, contentMode: .fit)
+                }
             } else if failed {
                 Rectangle()
                     .fill(Color.secondary.opacity(0.1))
@@ -161,6 +177,17 @@ struct RemoteAnimatedImage: View {
             }
         }
         .task(id: url) { await load() }
+    }
+
+    /// The largest size that fits `imageSize` inside the given box while
+    /// keeping its aspect ratio -- plain letterbox-fit math, computed
+    /// ourselves rather than leant on a SwiftUI layout modifier.
+    private static func fittedSize(for imageSize: CGSize, maxWidth: CGFloat, maxHeight: CGFloat) -> CGSize {
+        guard imageSize.width > 0, imageSize.height > 0 else {
+            return CGSize(width: min(maxWidth, 120), height: min(maxHeight, 90))
+        }
+        let scale = min(maxWidth / imageSize.width, maxHeight / imageSize.height)
+        return CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
     }
 
     private func load() async {
@@ -204,12 +231,10 @@ struct AuthenticatedRemoteImage: View {
     var body: some View {
         Group {
             if !requiresAuth {
-                RemoteAnimatedImage(url: url)
-                    .frame(maxWidth: maxWidth, maxHeight: maxHeight)
+                RemoteAnimatedImage(url: url, maxWidth: maxWidth, maxHeight: maxHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else if let token {
-                RemoteAnimatedImage(url: url, authToken: token)
-                    .frame(maxWidth: maxWidth, maxHeight: maxHeight)
+                RemoteAnimatedImage(url: url, authToken: token, maxWidth: maxWidth, maxHeight: maxHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else if tokenFailed {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
