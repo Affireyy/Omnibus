@@ -11,8 +11,10 @@ xcuserdata/
 # macOS
 .DS_Store
 
-# Sparkle release artifacts -- built locally each release, not source.
+# Sparkle release artifacts -- built locally (or by CI) each release, not source.
 *.zip
+*.dmg
+dmg-staging/
 
 # Downloaded by scripts/setup-autoupdate.sh -- the generate_keys/sign_update
 # binaries themselves, not something to track.

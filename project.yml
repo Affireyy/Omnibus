@@ -51,10 +51,11 @@ targets:
         LSUIElement: false
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
-        # Sparkle auto-update -- see AUTOUPDATE.md. Both of these are
-        # placeholders until you've generated your own signing key and
-        # created the GitHub repo the feed lives in; the app runs fine
-        # without them, it just won't find any updates yet.
+        # Sparkle auto-update feed + the public half of the EdDSA signing
+        # key -- see AUTOUPDATE.md. The matching private key never lives in
+        # this repo; the release workflow reads it from the
+        # SPARKLE_PRIVATE_KEY secret at release time (see
+        # scripts/setup-github-actions-release.sh).
         SUFeedURL: "https://raw.githubusercontent.com/Affireyy/Omnibus/main/appcast.xml"
         SUPublicEDKey: "J1x8Iu8W4VLz4Dt8LBfB5lj230F7kW81zB9UWJz2BiY="
         SUEnableAutomaticChecks: true

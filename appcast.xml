@@ -1,41 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Sparkle's update feed. Kept at the repo root and referenced by SUFeedURL
-  (project.yml + App/Info.plist) via its raw.githubusercontent.com URL, so
-  publishing an update is just "edit this file, commit, push" -- no
-  separate hosting to manage. See AUTOUPDATE.md for the full release
-  workflow this fits into.
+  Sparkle update feed for Omnibus.
 
-  Empty right now (no <item> entries) -- Sparkle treats that as "no
-  updates available" rather than an error, so this is safe to ship as-is
-  until your first real release. Copy the commented-out <item> template
-  below for each new version.
+  Served to the app via raw.githubusercontent.com (see SUFeedURL in
+  project.yml), so it updates the moment this file is committed to main;
+  no separate hosting needed.
+
+  Do not hand-edit the <item> entries below. The release workflow
+  (.github/workflows/release.yml) appends a new <item> here automatically
+  every time you push a version tag, using Sparkle's `sign_update` tool and
+  the SPARKLE_PRIVATE_KEY repo secret (see scripts/setup-github-actions-release.sh).
+  This file starts with zero items; the first tagged release adds the first one.
 -->
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
-    <title>Omnibus Updates</title>
+    <title>Omnibus</title>
     <link>https://raw.githubusercontent.com/Affireyy/Omnibus/main/appcast.xml</link>
-    <description>Update feed for Omnibus.</description>
+    <description>Updates for Omnibus.</description>
     <language>en</language>
-
-    <!--
-    <item>
-      <title>Version 0.2.0</title>
-      <description><![CDATA[
-        <ul>
-          <li>What changed in this release.</li>
-        </ul>
-      ]]></description>
-      <pubDate>Thu, 18 Sep 2026 12:00:00 +0000</pubDate>
-      <enclosure
-        url="https://github.com/Affireyy/Omnibus/releases/download/v0.2.0/Omnibus.zip"
-        sparkle:version="2"
-        sparkle:shortVersionString="0.2.0"
-        length="0"
-        type="application/octet-stream"
-        sparkle:edSignature="PASTE_THE_SIGNATURE_sign_update_PRINTS_HERE" />
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-    </item>
-    -->
+    <!-- CI-INSERT-POINT: new <item> elements are inserted directly below this line. -->
   </channel>
 </rss>
