@@ -124,9 +124,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Omnibus is still alpha -- flagged both as a GitHub "Pre-release"
+          # (the badge on the release page, and what --prerelease tells
+          # tools like `gh release list` and the GitHub API) and in the
+          # title itself, so it's obvious wherever the release shows up.
           gh release create "${{ steps.version.outputs.tag }}" \
             "${{ steps.dmg.outputs.dmg_path }}" \
-            --title "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }} (Alpha)" \
+            --prerelease \
             --generate-notes
 
       - name: Append release to appcast.xml on main
@@ -153,7 +158,7 @@ jobs:
           version, build, sig, length, url, pub_date, tag = sys.argv[1:8]
 
           item = f"""    <item>
-              <title>{tag}</title>
+              <title>{tag} (Alpha)</title>
               <pubDate>{pub_date}</pubDate>
               <sparkle:version>{build}</sparkle:version>
               <sparkle:shortVersionString>{version}</sparkle:shortVersionString>
