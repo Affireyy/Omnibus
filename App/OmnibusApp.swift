@@ -85,18 +85,18 @@ struct OmnibusApp: App {
             // when nothing's registered (or the clipboard's just text).
             CommandGroup(replacing: .pasteboard) {
                 Button("Cut") {
-                    NSApp.sendAction(Selector(("cut:")), to: nil, from: nil)
+                    NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
                 }
                 .keyboardShortcut("x", modifiers: .command)
 
                 Button("Copy") {
-                    NSApp.sendAction(Selector(("copy:")), to: nil, from: nil)
+                    NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
                 }
                 .keyboardShortcut("c", modifiers: .command)
 
                 Button("Paste") {
                     if !PasteCoordinator.shared.tryHandle() {
-                        NSApp.sendAction(Selector(("paste:")), to: nil, from: nil)
+                        NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
                     }
                 }
                 .keyboardShortcut("v", modifiers: .command)

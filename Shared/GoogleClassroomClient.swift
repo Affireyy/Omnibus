@@ -190,18 +190,23 @@ public final class GoogleClassroomClient: Sendable {
     }
 
     private func fetchCourseWork(token: String, course: CourseDTO, limit: Int) async throws -> [ClassroomWorkItem] {
-        var components = URLComponents(string: "https://classroom.googleapis.com/v1/courses/\(course.id)/courseWork")!
-        components.queryItems = [
-            URLQueryItem(name: "courseWorkStates", value: "PUBLISHED"),
-            URLQueryItem(name: "orderBy", value: "dueDate desc"),
-            URLQueryItem(name: "pageSize", value: String(limit))
-        ]
-        // Resolved to a plain (immutable, Sendable) URL before the
-        // concurrent fetch below -- `components` itself is a `var`, and
-        // Swift 6's strict concurrency checking doesn't allow a mutable
-        // local to be captured by an `async let`'s concurrently-executing
-        // initializer, even read-only.
-        let courseWorkURL = components.url!
+        // Built and fully consumed inside this closure, rather than as a
+        // `var` sitting in the function's own scope, because Swift 6's
+        // strict concurrency checking flags a mutable local merely for
+        // being *in scope* alongside an `async let` below -- even one
+        // that's never referenced again after this point. Scoping it to
+        // a closure ends its lifetime right here, before that region
+        // starts, which is what actually satisfies the checker (just
+        // resolving it to a `let` immediately after wasn't enough).
+        let courseWorkURL: URL = {
+            var components = URLComponents(string: "https://classroom.googleapis.com/v1/courses/\(course.id)/courseWork")!
+            components.queryItems = [
+                URLQueryItem(name: "courseWorkStates", value: "PUBLISHED"),
+                URLQueryItem(name: "orderBy", value: "dueDate desc"),
+                URLQueryItem(name: "pageSize", value: String(limit))
+            ]
+            return components.url!
+        }()
 
         // Run alongside the courseWork fetch: an assignment's *shared*
         // template lives in courseWork.materials (fetched below), but when
